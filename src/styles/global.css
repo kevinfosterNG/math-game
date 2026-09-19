@@ -1,0 +1,24 @@
+:root {
+  font-family: ui-rounded, 'Arial Rounded MT Bold', system-ui, sans-serif;
+  color: #f8f7ff;
+  background: #090a25;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+html { min-width: 320px; background: #090a25; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 4px solid #fff16b; outline-offset: 4px; }
+::selection { background: #68f7d2; color: #090a25; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
