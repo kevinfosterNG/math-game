@@ -306,10 +306,14 @@ export default function App() {
   }, [syncNow])
 
   useEffect(() => {
+    // This effect deliberately performs the initial external sync after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (cloudSyncConfigured) void syncNow()
   }, [syncNow])
 
   useEffect(() => {
+    // This effect deliberately persists completed rounds as an external side effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (roundFingerprint) void syncNow()
   }, [roundFingerprint, syncNow])
 
@@ -327,8 +331,12 @@ export default function App() {
 
   useEffect(() => {
     if (game.phase !== 'playing') return
+    // Reset transient question UI whenever the reducer advances to a new question.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAnswer('')
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setValidation('')
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsPaused(false)
     questionElapsedRef.current = 0
     questionStartRef.current = performance.now()
