@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { addCompletedRound, loadPersistedState, savePersistedState } from './data/storage'
+import { addCompletedRound, defaultState } from './data/state'
 import { cloudSyncConfigured } from './data/supabase'
 import { mergeCloudHistory, pullCloudRounds, pushCompletedRounds, type SyncStatus } from './data/sync'
 import { generateRound } from './game/facts'
@@ -236,7 +236,7 @@ function ResultScreen({
 
 export default function App() {
   const [game, dispatch] = useReducer(gameReducer, initialGameState)
-  const [persisted, setPersisted] = useState(loadPersistedState)
+  const [persisted, setPersisted] = useState(defaultState)
   const [answer, setAnswer] = useState('')
   const [validation, setValidation] = useState('')
   const [isPaused, setIsPaused] = useState(false)
@@ -278,8 +278,6 @@ export default function App() {
         const merged = mergeCloudHistory(persistedRef.current, cloudRounds)
         persistedRef.current = merged
         setPersisted(merged)
-        savePersistedState(merged)
-        await pushCompletedRounds(merged.rounds)
         setSyncStatus('synced')
       } catch {
         // Rounds are already safely stored on this device; the next online event
@@ -409,7 +407,11 @@ export default function App() {
     const nextPersisted = addCompletedRound(persisted, game.result)
     setAchievements(nextAchievements)
     setPersisted(nextPersisted)
-    savePersistedState(nextPersisted)
+    if (cloudSyncConfigured) {
+      void pushCompletedRounds([game.result])
+        .then(() => setSyncStatus('synced'))
+        .catch(() => setSyncStatus('error'))
+    }
     playTone('complete', soundEnabled)
   }, [game.phase, game.result, persisted, soundEnabled])
 
@@ -446,7 +448,6 @@ export default function App() {
   const toggleSound = () => {
     const next = { ...persisted, settings: { soundEnabled: !soundEnabled } }
     setPersisted(next)
-    savePersistedState(next)
   }
 
   return (

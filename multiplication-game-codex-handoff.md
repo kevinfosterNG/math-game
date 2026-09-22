@@ -521,17 +521,9 @@ Do not make the results screen excessively animated or slow.
 
 # Data Architecture
 
-## Phase 1: Local Prototype
+## Phase 1: Local Prototype (superseded)
 
-The first playable version should preferably require **no backend**.
-
-Use browser `localStorage` for:
-
-- Personal records
-- Basic round history
-- Current settings
-
-This allows the game to be deployed immediately and tested with the child before introducing backend complexity.
+The original prototype plan used browser `localStorage` for personal records, round history, and settings. The shipped app no longer persists gameplay state locally: in-memory state is used for the current session, and Supabase is authoritative when configured.
 
 The goal is to validate:
 

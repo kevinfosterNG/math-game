@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultPersistedState } from './storage'
+import { defaultState } from './state'
 import { mergeCloudHistory, mergeRounds, parseCloudRound } from './sync'
 import type { RoundResult } from '../game/types'
 
@@ -23,7 +23,7 @@ describe('cloud history merge', () => {
   })
 
   it('rebuilds records from the merged cross-device history', () => {
-    const merged = mergeCloudHistory({ ...defaultPersistedState(), rounds: [round('local', '2026-01-01T00:00:00.000Z', 80)] }, [
+    const merged = mergeCloudHistory({ ...defaultState(), rounds: [round('local', '2026-01-01T00:00:00.000Z', 80)] }, [
       round('cloud', '2026-01-02T00:00:00.000Z', 96),
     ])
     expect(merged.records.easy.bestScore).toBe(96)
@@ -36,7 +36,7 @@ describe('cloud history merge', () => {
       new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
       index === 0 ? 100 : 80,
     ))
-    const merged = mergeCloudHistory(defaultPersistedState(), cloud)
+    const merged = mergeCloudHistory(defaultState(), cloud)
     expect(merged.rounds).toHaveLength(100)
     expect(merged.records.easy.bestScore).toBe(100)
   })

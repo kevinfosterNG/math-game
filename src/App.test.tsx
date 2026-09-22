@@ -5,7 +5,6 @@ import App from './App'
 
 describe('Math Quest app', () => {
   beforeEach(() => {
-    localStorage.clear()
     vi.stubGlobal('AudioContext', undefined)
   })
 
@@ -34,11 +33,11 @@ describe('Math Quest app', () => {
     expect(screen.getByText(/Correct answer:/)).toBeInTheDocument()
   })
 
-  it('persists the sound preference', async () => {
+  it('toggles the sound preference in the current session', async () => {
     const user = userEvent.setup()
     render(<App />)
     await user.click(screen.getByRole('button', { name: 'Mute sound effects' }))
-    expect(localStorage.getItem('math-quest:v1')).toContain('"soundEnabled":false')
+    expect(screen.getByRole('button', { name: 'Enable sound effects' })).toBeInTheDocument()
   })
 
   it('pauses when the document is hidden and restores focus after resume', async () => {

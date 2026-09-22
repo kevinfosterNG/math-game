@@ -1,6 +1,6 @@
 # Math Quest: Multiplication Arena
 
-A local-first, kid-friendly multiplication game built with React, TypeScript, and Vite. It works without an account or network connection, and automatically merges one shared progress history across every configured device.
+A kid-friendly multiplication game built with React, TypeScript, and Vite. It works without an account and automatically syncs one shared progress history across every configured device when Supabase is enabled.
 
 ## Development
 
@@ -41,4 +41,4 @@ The migration creates a single shared `rounds` / `attempts` dataset, enables RLS
 
 The GitHub Actions workflow builds and deploys `trunk` to Azure Static Web Apps. After creating the Azure Static Web App, add its deployment token to the repository as the `AZURE_STATIC_WEB_APPS_API_TOKEN` Actions secret.
 
-The game retains the latest 100 completed rounds, settings, and personal records in browser `localStorage`. Cloud sync pulls/merges history automatically and safely retries uploads when a connection returns.
+The game keeps the latest 100 completed rounds, settings, and personal records in memory for the current session. With Supabase configured, cloud history is authoritative and newly completed rounds are uploaded individually; browser `localStorage` is not used.
