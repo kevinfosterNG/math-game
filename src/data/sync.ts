@@ -157,11 +157,12 @@ function fromCloudRound(round: CloudRound): RoundResult {
   }
 }
 
-export async function pullCloudRounds(): Promise<RoundResult[]> {
+export async function pullCloudRounds(userId: string): Promise<RoundResult[]> {
   if (!supabase) return []
   const { data, error } = await supabase
     .from('rounds')
     .select('id, completed_at, difficulty, total_questions, correct_answers, percentage, active_time_ms, average_time_ms, attempts(question_id, fact_x, fact_y, displayed_x, displayed_y, entered_answer, correct_answer, is_correct, response_time_ms, order_index)')
+    .eq('user_id', userId)
     .order('completed_at', { ascending: false })
   if (error) throw error
   return (Array.isArray(data) ? data : [])
@@ -170,13 +171,13 @@ export async function pullCloudRounds(): Promise<RoundResult[]> {
 }
 
 /** Repeated calls are safe: each row is upserted by its stable local ID. */
-export async function pushCompletedRounds(rounds: RoundResult[]): Promise<void> {
+export async function pushCompletedRounds(rounds: RoundResult[], userId: string): Promise<void> {
   if (!supabase) return
   for (const round of rounds) {
     const payload = toCloudPayload(round)
     const { error: roundError } = await supabase
       .from('rounds')
-      .upsert(payload.p_round, { onConflict: 'id' })
+      .upsert({ ...payload.p_round, user_id: userId }, { onConflict: 'id' })
     if (roundError) throw roundError
     if (payload.p_attempts.length > 0) {
       const { error } = await supabase

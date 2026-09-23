@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import type { User } from '@supabase/supabase-js'
 import { addCompletedRound, defaultState } from './data/state'
-import { cloudSyncConfigured } from './data/supabase'
+import { cloudSyncConfigured, supabase } from './data/supabase'
 import { mergeCloudHistory, pullCloudRounds, pushCompletedRounds, type SyncStatus } from './data/sync'
 import { generateRound } from './game/facts'
 import { gameReducer, initialGameState } from './game/reducer'
@@ -81,18 +82,25 @@ function SoundButton({ enabled, onToggle }: { enabled: boolean; onToggle: () => 
   )
 }
 
-function SyncIndicator({ status }: { status: SyncStatus }) {
+type EntryMode = 'loading' | 'choice' | 'guest' | 'account'
+
+function displayName(user: User): string {
+  const name = user.user_metadata?.full_name ?? user.user_metadata?.name
+  return typeof name === 'string' && name.trim() ? name.trim() : 'Player'
+}
+
+function SyncIndicator({ status, account }: { status: SyncStatus; account: boolean }) {
   const labels: Record<SyncStatus, string> = {
-    local: cloudSyncConfigured ? 'Preparing shared sync…' : 'Playing locally',
+    local: account ? 'Preparing private sync…' : 'Guest scores last this visit',
     offline: 'Sync paused — offline',
-    syncing: 'Syncing shared progress…',
-    synced: 'Shared progress synced',
+    syncing: 'Syncing your progress…',
+    synced: 'Your progress is saved',
     error: 'Sync will retry later',
   }
   return <span className={styles.syncLabel} aria-live="polite">{labels[status]}</span>
 }
 
-function Records({ rounds, syncStatus }: { rounds: RoundResult[]; syncStatus: SyncStatus }) {
+function Records({ rounds, syncStatus, account }: { rounds: RoundResult[]; syncStatus: SyncStatus; account: boolean }) {
   return (
     <section className={styles.recordsPanel} aria-labelledby="records-title">
       <div className={styles.recordsHeading}>
@@ -100,7 +108,7 @@ function Records({ rounds, syncStatus }: { rounds: RoundResult[]; syncStatus: Sy
           <div className={styles.sectionEyebrow}>Personal bests &amp; rankings</div>
           <h2 id="records-title">Your records</h2>
         </div>
-        <SyncIndicator status={syncStatus} />
+        <SyncIndicator status={syncStatus} account={account} />
       </div>
       <div className={styles.recordGrid}>
         {(Object.keys(DIFFICULTY_INFO) as Difficulty[]).map((difficulty) => {
@@ -140,10 +148,12 @@ function Records({ rounds, syncStatus }: { rounds: RoundResult[]; syncStatus: Sy
 function HomeScreen({
   rounds,
   syncStatus,
+  account,
   onStart,
 }: {
   rounds: RoundResult[]
   syncStatus: SyncStatus
+  account: boolean
   onStart: (difficulty: Difficulty) => void
 }) {
   return (
@@ -178,7 +188,7 @@ function HomeScreen({
           })}
         </div>
       </section>
-      <Records rounds={rounds} syncStatus={syncStatus} />
+      <Records rounds={rounds} syncStatus={syncStatus} account={account} />
     </main>
   )
 }
@@ -243,6 +253,9 @@ export default function App() {
   const [displayTime, setDisplayTime] = useState(0)
   const [achievements, setAchievements] = useState<RecordAchievements>(NO_ACHIEVEMENTS)
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('local')
+  const [entryMode, setEntryMode] = useState<EntryMode>(cloudSyncConfigured ? 'loading' : 'guest')
+  const [player, setPlayer] = useState<User | null>(null)
+  const [authError, setAuthError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const resumeButtonRef = useRef<HTMLButtonElement>(null)
   const pausedFocusRef = useRef<HTMLElement | null>(null)
@@ -250,7 +263,9 @@ export default function App() {
   const questionElapsedRef = useRef(0)
   const persistedResultRef = useRef<string | null>(null)
   const persistedRef = useRef(persisted)
-  const syncInFlightRef = useRef<Promise<void> | null>(null)
+  const accountRef = useRef<User | null>(null)
+  const pendingRoundsRef = useRef(new Map<string, RoundResult>())
+  const syncInFlightRef = useRef<{ userId: string; promise: Promise<void> } | null>(null)
 
   const soundEnabled = persisted.settings.soundEnabled
   const currentQuestion = game.questions[game.questionIndex]
@@ -259,14 +274,36 @@ export default function App() {
     [game.attempts],
   )
   const roundFingerprint = useMemo(() => persisted.rounds.map((round) => round.id).join(','), [persisted.rounds])
+  const playerId = player?.id
 
   useEffect(() => {
     persistedRef.current = persisted
   }, [persisted])
 
+  useEffect(() => {
+    if (!supabase) return
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      const nextUser = session?.user ?? null
+      if (accountRef.current?.id !== nextUser?.id) {
+        accountRef.current = nextUser
+        pendingRoundsRef.current = new Map()
+        persistedRef.current = defaultState()
+        setPersisted(persistedRef.current)
+        persistedResultRef.current = null
+        setAchievements(NO_ACHIEVEMENTS)
+        setSyncStatus('local')
+        dispatch({ type: 'HOME' })
+      }
+      setPlayer(nextUser)
+      setEntryMode(nextUser ? 'account' : event === 'SIGNED_OUT' ? 'guest' : 'choice')
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
   const syncNow = useCallback(async () => {
-    if (!cloudSyncConfigured) return
-    if (syncInFlightRef.current) return syncInFlightRef.current
+    const userId = accountRef.current?.id
+    if (!userId) return
+    if (syncInFlightRef.current?.userId === userId) return syncInFlightRef.current.promise
     if (!navigator.onLine) {
       setSyncStatus('offline')
       return
@@ -274,20 +311,26 @@ export default function App() {
     setSyncStatus('syncing')
     const run = (async () => {
       try {
-        const cloudRounds = await pullCloudRounds()
-        const merged = mergeCloudHistory(persistedRef.current, cloudRounds)
-        persistedRef.current = merged
-        setPersisted(merged)
-        setSyncStatus('synced')
+        do {
+          const pending = pendingRoundsRef.current
+          const batch = [...pending.values()]
+          if (batch.length) await pushCompletedRounds(batch, userId)
+          if (accountRef.current?.id !== userId) return
+          batch.forEach((round) => pending.delete(round.id))
+          const cloudRounds = await pullCloudRounds(userId)
+          if (accountRef.current?.id !== userId) return
+          const merged = mergeCloudHistory(persistedRef.current, cloudRounds)
+          persistedRef.current = merged
+          setPersisted(merged)
+        } while (pendingRoundsRef.current.size > 0 && accountRef.current?.id === userId)
+        if (accountRef.current?.id === userId) setSyncStatus('synced')
       } catch {
-        // Rounds are already safely stored on this device; the next online event
-        // or completed round retries the idempotent upload.
-        setSyncStatus('error')
+        if (accountRef.current?.id === userId) setSyncStatus('error')
       } finally {
-        syncInFlightRef.current = null
+        if (syncInFlightRef.current?.userId === userId) syncInFlightRef.current = null
       }
     })()
-    syncInFlightRef.current = run
+    syncInFlightRef.current = { userId, promise: run }
     return run
   }, [])
 
@@ -304,12 +347,12 @@ export default function App() {
   }, [syncNow])
 
   useEffect(() => {
-    if (cloudSyncConfigured) void syncNow()
-  }, [syncNow])
+    if (playerId) void syncNow()
+  }, [playerId, syncNow])
 
   useEffect(() => {
-    if (roundFingerprint) void syncNow()
-  }, [roundFingerprint, syncNow])
+    if (playerId && roundFingerprint) void syncNow()
+  }, [playerId, roundFingerprint, syncNow])
 
   const startRound = useCallback((difficulty: Difficulty) => {
     setAchievements(NO_ACHIEVEMENTS)
@@ -406,14 +449,31 @@ export default function App() {
     const nextAchievements = getAchievements(game.result, persisted.records)
     const nextPersisted = addCompletedRound(persisted, game.result)
     setAchievements(nextAchievements)
+    persistedRef.current = nextPersisted
     setPersisted(nextPersisted)
-    if (cloudSyncConfigured) {
-      void pushCompletedRounds([game.result])
-        .then(() => setSyncStatus('synced'))
-        .catch(() => setSyncStatus('error'))
+    if (accountRef.current) {
+      pendingRoundsRef.current.set(game.result.id, game.result)
+      void syncNow()
     }
     playTone('complete', soundEnabled)
-  }, [game.phase, game.result, persisted, soundEnabled])
+  }, [game.phase, game.result, persisted, soundEnabled, syncNow])
+
+  const signIn = async () => {
+    if (!supabase) return
+    setAuthError('')
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    })
+    if (error) setAuthError('Google sign-in could not start. Please try again.')
+  }
+
+  const signOut = async () => {
+    if (!supabase) return
+    setAuthError('')
+    const { error } = await supabase.auth.signOut()
+    if (error) setAuthError('Sign-out failed. Please try again.')
+  }
 
   const submitAnswer = (event: React.FormEvent) => {
     event.preventDefault()
@@ -458,15 +518,37 @@ export default function App() {
           <span aria-hidden="true">×</span> Math Quest
         </button>
         <div className={styles.topActions}>
+          {entryMode === 'account' && player && (
+            <><span className={styles.playerName}>Hi, {displayName(player)}</span><button className={styles.accountButton} type="button" onClick={() => void signOut()}>Sign out</button></>
+          )}
+          {entryMode === 'guest' && cloudSyncConfigured && <button className={styles.accountButton} type="button" onClick={() => void signIn()}>Sign in</button>}
           <SoundButton enabled={soundEnabled} onToggle={toggleSound} />
         </div>
       </header>
 
-      {game.phase === 'home' && (
-        <HomeScreen rounds={persisted.rounds} syncStatus={syncStatus} onStart={startRound} />
+      {authError && <p className={styles.authError} role="alert">{authError}</p>}
+
+      {entryMode === 'loading' && <main className={styles.entryScreen}><p>Checking your account…</p></main>}
+      {entryMode === 'choice' && (
+        <main className={styles.entryScreen}>
+          <section className={styles.entryCard}>
+            <p className={styles.kicker}>Math Quest</p>
+            <h1>Ready, player?</h1>
+            <p>Sign in with Google to save your own scores across devices, or practice as a guest for this visit.</p>
+            <div className={styles.entryActions}>
+              <button className={styles.primaryButton} type="button" onClick={() => void signIn()}>Sign in with Google</button>
+              <button className={styles.secondaryButton} type="button" onClick={() => setEntryMode('guest')}>Play as guest</button>
+            </div>
+            <p className={styles.privacyNote}>Other players can’t see your scores. Guest scores disappear when you leave.</p>
+          </section>
+        </main>
       )}
 
-      {(game.phase === 'playing' || game.phase === 'feedback') && currentQuestion && (
+      {(entryMode === 'guest' || entryMode === 'account') && game.phase === 'home' && (
+        <HomeScreen rounds={persisted.rounds} syncStatus={syncStatus} account={entryMode === 'account'} onStart={startRound} />
+      )}
+
+      {(entryMode === 'guest' || entryMode === 'account') && (game.phase === 'playing' || game.phase === 'feedback') && currentQuestion && (
         <main className={styles.game}>
           <section className={styles.gamePanel} aria-label="Multiplication round">
             <div className={styles.hud}>
@@ -535,7 +617,7 @@ export default function App() {
         </main>
       )}
 
-      {game.phase === 'results' && game.result && (
+      {(entryMode === 'guest' || entryMode === 'account') && game.phase === 'results' && game.result && (
         <ResultScreen
           result={game.result}
           achievements={achievements}
