@@ -28,6 +28,7 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
         run: npm run build
       - name: Deploy to Azure Static Web Apps
         if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.MATH_QUEST_GOOGLE_AUTH_READY == 'true' }}

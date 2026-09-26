@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { addCompletedRound, defaultState } from './data/state'
+import { createGoogleNonce, loadGoogleIdentity, type GoogleIdentity } from './data/googleIdentity'
 import { cloudSyncConfigured, supabase } from './data/supabase'
 import { mergeCloudHistory, pullCloudRounds, pushCompletedRounds, type SyncStatus } from './data/sync'
 import { generateRound } from './game/facts'
@@ -82,6 +83,18 @@ function SoundButton({ enabled, onToggle }: { enabled: boolean; onToggle: () => 
   )
 }
 
+function GoogleSignInButton({ identity, compact = false }: { identity: GoogleIdentity | null; compact?: boolean }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!identity || !containerRef.current) return
+    containerRef.current.replaceChildren()
+    identity.renderButton(containerRef.current, compact
+      ? { type: 'icon', theme: 'outline', size: 'medium', shape: 'circle' }
+      : { type: 'standard', theme: 'outline', size: 'medium', shape: 'pill', text: 'signin_with' })
+  }, [identity, compact])
+  return <div className={compact ? styles.googleButtonCompact : styles.googleButton} ref={containerRef} aria-label="Sign in with Google" />
+}
+
 type EntryMode = 'loading' | 'guest' | 'account'
 
 function displayName(user: User): string {
@@ -151,7 +164,7 @@ function HomeScreen({
   account,
   showGuestReminder,
   onDismissReminder,
-  onSignIn,
+  googleIdentity,
   onStart,
 }: {
   rounds: RoundResult[]
@@ -159,7 +172,7 @@ function HomeScreen({
   account: boolean
   showGuestReminder: boolean
   onDismissReminder: () => void
-  onSignIn: () => void
+  googleIdentity: GoogleIdentity | null
   onStart: (difficulty: Difficulty) => void
 }) {
   return (
@@ -171,7 +184,7 @@ function HomeScreen({
             <p>Guest scores last only this visit. Sign in with Google before playing to save future scores across visits and devices.</p>
           </div>
           <div className={styles.reminderActions}>
-            <button className={styles.accountButton} type="button" onClick={onSignIn}>Sign in with Google</button>
+            <GoogleSignInButton identity={googleIdentity} />
             <button className={styles.dismissReminder} type="button" onClick={onDismissReminder} aria-label="Dismiss score-saving reminder">&times;</button>
           </div>
         </aside>
@@ -276,6 +289,7 @@ export default function App() {
   const [guestReminderVisible, setGuestReminderVisible] = useState(true)
   const [player, setPlayer] = useState<User | null>(null)
   const [authError, setAuthError] = useState('')
+  const [googleIdentity, setGoogleIdentity] = useState<GoogleIdentity | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const resumeButtonRef = useRef<HTMLButtonElement>(null)
   const pausedFocusRef = useRef<HTMLElement | null>(null)
@@ -479,15 +493,37 @@ export default function App() {
     playTone('complete', soundEnabled)
   }, [game.phase, game.result, persisted, soundEnabled, syncNow])
 
-  const signIn = async () => {
-    if (!supabase) return
-    setAuthError('')
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: window.location.origin },
+  useEffect(() => {
+    if (entryMode !== 'guest' || !supabase) return
+    const authClient = supabase
+    let cancelled = false
+    Promise.all([loadGoogleIdentity(), createGoogleNonce()]).then(([identity, nonce]) => {
+      if (cancelled) return
+      const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
+      if (!clientId) throw new Error('Google client ID is missing')
+      identity.initialize({
+        client_id: clientId,
+        nonce: nonce.hashed,
+        ux_mode: 'popup',
+        callback: ({ credential }) => {
+          if (!credential) {
+            setAuthError('Google sign-in did not return an account. Please try again.')
+            return
+          }
+          setAuthError('')
+          void authClient.auth.signInWithIdToken({ provider: 'google', token: credential, nonce: nonce.raw })
+            .then(({ error }) => {
+              if (error) setAuthError('Google sign-in failed. Please try again.')
+            })
+            .catch(() => setAuthError('Google sign-in failed. Please try again.'))
+        },
+      })
+      setGoogleIdentity(identity)
+    }).catch(() => {
+      if (!cancelled) setAuthError('Google sign-in could not load. Please refresh and try again.')
     })
-    if (error) setAuthError('Google sign-in could not start. Please try again.')
-  }
+    return () => { cancelled = true }
+  }, [entryMode])
 
   const signOut = async () => {
     if (!supabase) return
@@ -542,7 +578,7 @@ export default function App() {
           {entryMode === 'account' && player && (
             <><span className={styles.playerName}>Hi, {displayName(player)}</span><button className={styles.accountButton} type="button" onClick={() => void signOut()}>Sign out</button></>
           )}
-          {entryMode === 'guest' && cloudSyncConfigured && <button className={styles.accountButton} type="button" onClick={() => void signIn()}>Sign in</button>}
+          {entryMode === 'guest' && cloudSyncConfigured && <GoogleSignInButton identity={googleIdentity} compact />}
           <SoundButton enabled={soundEnabled} onToggle={toggleSound} />
         </div>
       </header>
@@ -558,7 +594,7 @@ export default function App() {
           account={entryMode === 'account'}
           showGuestReminder={entryMode === 'guest' && cloudSyncConfigured && guestReminderVisible}
           onDismissReminder={() => setGuestReminderVisible(false)}
-          onSignIn={() => void signIn()}
+          googleIdentity={googleIdentity}
           onStart={startRound}
         />
       )}

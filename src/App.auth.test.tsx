@@ -9,6 +9,9 @@ const auth = vi.hoisted(() => ({
   pull: vi.fn(),
   push: vi.fn(),
   signIn: vi.fn(),
+  googleCallback: null as null | ((response: { credential?: string }) => void),
+  renderGoogleButton: vi.fn(),
+  initializeGoogle: vi.fn(),
   signOut: vi.fn(),
 }))
 
@@ -20,10 +23,25 @@ vi.mock('./data/supabase', () => ({
         auth.listener = listener
         return { data: { subscription: { unsubscribe: vi.fn() } } }
       },
-      signInWithOAuth: auth.signIn,
+      signInWithIdToken: auth.signIn,
       signOut: auth.signOut,
     },
   },
+}))
+
+vi.mock('./data/googleIdentity', () => ({
+  loadGoogleIdentity: vi.fn().mockImplementation(async () => ({
+    initialize: auth.initializeGoogle.mockImplementation(({ callback }: { callback: (response: { credential?: string }) => void }) => {
+      auth.googleCallback = callback
+    }),
+    renderButton: auth.renderGoogleButton.mockImplementation((element: HTMLElement, options: { type: string }) => {
+      const button = document.createElement('button')
+      button.textContent = options.type === 'icon' ? 'Sign in' : 'Sign in with Google'
+      button.addEventListener('click', () => auth.googleCallback?.({ credential: 'google-id-token' }))
+      element.append(button)
+    }),
+  })),
+  createGoogleNonce: vi.fn().mockResolvedValue({ raw: 'raw-nonce', hashed: 'hashed-nonce' }),
 }))
 
 vi.mock('./data/sync', async () => ({
@@ -52,6 +70,10 @@ describe('private player sessions', () => {
     auth.pull.mockReset().mockImplementation(async (id: string) => id === 'student-a' ? [round('a', 100)] : [round('b', 80)])
     auth.push.mockReset().mockResolvedValue(undefined)
     auth.signIn.mockReset().mockResolvedValue({ error: null })
+    auth.googleCallback = null
+    auth.initializeGoogle.mockClear()
+    auth.renderGoogleButton.mockClear()
+    vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client.apps.googleusercontent.com')
     auth.signOut.mockReset().mockResolvedValue({ error: null })
   })
 
@@ -63,7 +85,7 @@ describe('private player sessions', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Sign in with Google before playing')
     await user.click(screen.getByRole('button', { name: 'Dismiss score-saving reminder' }))
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument()
     expect(screen.getByText('Guest scores last this visit')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /easy/i }))
     expect(screen.getByLabelText('Your answer')).toBeInTheDocument()
@@ -71,15 +93,21 @@ describe('private player sessions', () => {
     expect(auth.push).not.toHaveBeenCalled()
   })
 
-  it('starts Google OAuth with a return to this site', async () => {
+  it("uses Google's on-site button and exchanges the ID token with Supabase", async () => {
     const user = userEvent.setup()
     render(<App />)
     act(() => auth.listener?.('INITIAL_SESSION', null))
-    await user.click(screen.getByRole('button', { name: 'Sign in with Google' }))
-    expect(auth.signIn).toHaveBeenCalledWith({
+    await user.click(await screen.findByRole('button', { name: 'Sign in with Google' }))
+    await waitFor(() => expect(auth.signIn).toHaveBeenCalledWith({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
-    })
+      token: 'google-id-token',
+      nonce: 'raw-nonce',
+    }))
+    expect(auth.initializeGoogle).toHaveBeenCalledWith(expect.objectContaining({
+      client_id: 'test-client.apps.googleusercontent.com',
+      nonce: 'hashed-nonce',
+      ux_mode: 'popup',
+    }))
   })
 
   it('replaces scores and name when the signed-in account changes', async () => {
