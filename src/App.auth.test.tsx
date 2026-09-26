@@ -55,11 +55,15 @@ describe('private player sessions', () => {
     auth.signOut.mockReset().mockResolvedValue({ error: null })
   })
 
-  it('lets guests practice without reading cloud scores', async () => {
+  it('opens as a guest and dismisses the score-saving reminder without reading cloud scores', async () => {
     const user = userEvent.setup()
     render(<App />)
     act(() => auth.listener?.('INITIAL_SESSION', null))
-    await user.click(screen.getByRole('button', { name: 'Play as guest' }))
+    expect(screen.getByRole('heading', { name: 'Multiplication Arena' })).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Sign in with Google before playing')
+    await user.click(screen.getByRole('button', { name: 'Dismiss score-saving reminder' }))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument()
     expect(screen.getByText('Guest scores last this visit')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /easy/i }))
     expect(screen.getByLabelText('Your answer')).toBeInTheDocument()
@@ -82,6 +86,7 @@ describe('private player sessions', () => {
     render(<App />)
     act(() => auth.listener?.('INITIAL_SESSION', { user: player('student-a', 'Alex') }))
     await waitFor(() => expect(screen.getByText('100% · 30.0s')).toBeInTheDocument())
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.getByText('Hi, Alex')).toBeInTheDocument()
     act(() => auth.listener?.('SIGNED_IN', { user: player('student-b', 'Blair') }))
     await waitFor(() => expect(screen.getByText('80% · 30.0s')).toBeInTheDocument())
@@ -92,6 +97,7 @@ describe('private player sessions', () => {
     act(() => auth.listener?.('SIGNED_OUT', null))
     expect(screen.queryByText('80% · 30.0s')).not.toBeInTheDocument()
     expect(screen.getByText('Guest scores last this visit')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Guest scores last only this visit')
   })
 
   it('ignores a previous account’s cloud reply after switching users', async () => {

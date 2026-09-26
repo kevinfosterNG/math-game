@@ -1,9 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 async function enterAsGuest(page: import('@playwright/test').Page) {
-  const guestButton = page.getByRole('button', { name: 'Play as guest' })
-  await expect(guestButton.or(page.getByRole('heading', { name: /multiplication arena/i }))).toBeVisible()
-  if (await guestButton.isVisible()) await guestButton.click()
+  await expect(page.getByRole('heading', { name: /multiplication arena/i })).toBeVisible()
 }
 
 test('starts a keyboard-friendly guest round and resets settings after reload', async ({ page }) => {
