@@ -189,6 +189,7 @@ function HomeScreen({
         </div>
       </section>
       <Records rounds={rounds} syncStatus={syncStatus} account={account} />
+      <p className={styles.privacyFooter}><a href="/privacy.html">Privacy</a> · Questions? <a href="mailto:math@fostes.org">math@fostes.org</a></p>
     </main>
   )
 }
@@ -540,6 +541,7 @@ export default function App() {
               <button className={styles.secondaryButton} type="button" onClick={() => setEntryMode('guest')}>Play as guest</button>
             </div>
             <p className={styles.privacyNote}>Other players can’t see your scores. Guest scores disappear when you leave.</p>
+            <p className={styles.privacyNote}><a className={styles.privacyLink} href="/privacy.html">Privacy</a> · Questions? <a className={styles.privacyLink} href="mailto:math@fostes.org">math@fostes.org</a></p>
           </section>
         </main>
       )}
