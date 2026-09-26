@@ -82,7 +82,7 @@ function SoundButton({ enabled, onToggle }: { enabled: boolean; onToggle: () => 
   )
 }
 
-type EntryMode = 'loading' | 'choice' | 'guest' | 'account'
+type EntryMode = 'loading' | 'guest' | 'account'
 
 function displayName(user: User): string {
   const name = user.user_metadata?.full_name ?? user.user_metadata?.name
@@ -149,15 +149,33 @@ function HomeScreen({
   rounds,
   syncStatus,
   account,
+  showGuestReminder,
+  onDismissReminder,
+  onSignIn,
   onStart,
 }: {
   rounds: RoundResult[]
   syncStatus: SyncStatus
   account: boolean
+  showGuestReminder: boolean
+  onDismissReminder: () => void
+  onSignIn: () => void
   onStart: (difficulty: Difficulty) => void
 }) {
   return (
     <main className={styles.home}>
+      {showGuestReminder && (
+        <aside className={styles.guestReminder} role="alert">
+          <div>
+            <strong>Playing as a guest</strong>
+            <p>Guest scores last only this visit. Sign in with Google before playing to save future scores across visits and devices.</p>
+          </div>
+          <div className={styles.reminderActions}>
+            <button className={styles.accountButton} type="button" onClick={onSignIn}>Sign in with Google</button>
+            <button className={styles.dismissReminder} type="button" onClick={onDismissReminder} aria-label="Dismiss score-saving reminder">&times;</button>
+          </div>
+        </aside>
+      )}
       <section className={styles.hero}>
         <div className={styles.logoMark} aria-hidden="true"><span>×</span></div>
         <p className={styles.kicker}>Math Quest</p>
@@ -255,6 +273,7 @@ export default function App() {
   const [achievements, setAchievements] = useState<RecordAchievements>(NO_ACHIEVEMENTS)
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('local')
   const [entryMode, setEntryMode] = useState<EntryMode>(cloudSyncConfigured ? 'loading' : 'guest')
+  const [guestReminderVisible, setGuestReminderVisible] = useState(true)
   const [player, setPlayer] = useState<User | null>(null)
   const [authError, setAuthError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -283,7 +302,7 @@ export default function App() {
 
   useEffect(() => {
     if (!supabase) return
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       const nextUser = session?.user ?? null
       if (accountRef.current?.id !== nextUser?.id) {
         accountRef.current = nextUser
@@ -293,10 +312,11 @@ export default function App() {
         persistedResultRef.current = null
         setAchievements(NO_ACHIEVEMENTS)
         setSyncStatus('local')
+        if (!nextUser) setGuestReminderVisible(true)
         dispatch({ type: 'HOME' })
       }
       setPlayer(nextUser)
-      setEntryMode(nextUser ? 'account' : event === 'SIGNED_OUT' ? 'guest' : 'choice')
+      setEntryMode(nextUser ? 'account' : 'guest')
     })
     return () => subscription.unsubscribe()
   }, [])
@@ -530,24 +550,17 @@ export default function App() {
       {authError && <p className={styles.authError} role="alert">{authError}</p>}
 
       {entryMode === 'loading' && <main className={styles.entryScreen}><p>Checking your account…</p></main>}
-      {entryMode === 'choice' && (
-        <main className={styles.entryScreen}>
-          <section className={styles.entryCard}>
-            <p className={styles.kicker}>Math Quest</p>
-            <h1>Ready, player?</h1>
-            <p>Sign in with Google to save your own scores across devices, or practice as a guest for this visit.</p>
-            <div className={styles.entryActions}>
-              <button className={styles.primaryButton} type="button" onClick={() => void signIn()}>Sign in with Google</button>
-              <button className={styles.secondaryButton} type="button" onClick={() => setEntryMode('guest')}>Play as guest</button>
-            </div>
-            <p className={styles.privacyNote}>Other players can’t see your scores. Guest scores disappear when you leave.</p>
-            <p className={styles.privacyNote}><a className={styles.privacyLink} href="/privacy.html">Privacy</a> · Questions? <a className={styles.privacyLink} href="mailto:math@fostes.org">math@fostes.org</a></p>
-          </section>
-        </main>
-      )}
 
       {(entryMode === 'guest' || entryMode === 'account') && game.phase === 'home' && (
-        <HomeScreen rounds={persisted.rounds} syncStatus={syncStatus} account={entryMode === 'account'} onStart={startRound} />
+        <HomeScreen
+          rounds={persisted.rounds}
+          syncStatus={syncStatus}
+          account={entryMode === 'account'}
+          showGuestReminder={entryMode === 'guest' && cloudSyncConfigured && guestReminderVisible}
+          onDismissReminder={() => setGuestReminderVisible(false)}
+          onSignIn={() => void signIn()}
+          onStart={startRound}
+        />
       )}
 
       {(entryMode === 'guest' || entryMode === 'account') && (game.phase === 'playing' || game.phase === 'feedback') && currentQuestion && (
