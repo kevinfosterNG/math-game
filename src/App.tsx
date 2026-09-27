@@ -84,15 +84,34 @@ function SoundButton({ enabled, onToggle }: { enabled: boolean; onToggle: () => 
 }
 
 function GoogleSignInButton({ identity, compact = false }: { identity: GoogleIdentity | null; compact?: boolean }) {
-  const containerRef = useRef<HTMLDivElement>(null)
+  const hostRef = useRef<HTMLDivElement>(null)
+  const [ready, setReady] = useState(false)
   useEffect(() => {
-    if (!identity || !containerRef.current) return
-    containerRef.current.replaceChildren()
-    identity.renderButton(containerRef.current, compact
+    if (!identity || !hostRef.current) return
+    const host = hostRef.current
+    host.replaceChildren()
+    const showButton = () => setReady(true)
+    const observer = new MutationObserver(() => {
+      const iframe = host.querySelector('iframe')
+      if (!iframe) return
+      iframe.addEventListener('load', showButton, { once: true })
+      observer.disconnect()
+    })
+    observer.observe(host, { childList: true, subtree: true })
+    identity.renderButton(host, compact
       ? { type: 'icon', theme: 'outline', size: 'medium', shape: 'circle' }
-      : { type: 'standard', theme: 'outline', size: 'medium', shape: 'pill', text: 'signin_with' })
+      : { type: 'standard', theme: 'outline', size: 'medium', shape: 'pill', text: 'signin_with', width: 190 })
+    return () => {
+      observer.disconnect()
+      host.querySelector('iframe')?.removeEventListener('load', showButton)
+    }
   }, [identity, compact])
-  return <div className={compact ? styles.googleButtonCompact : styles.googleButton} ref={containerRef} aria-label="Sign in with Google" />
+  return (
+    <div className={`${compact ? styles.googleButtonCompact : styles.googleButton} ${ready ? styles.googleButtonReady : ''}`} aria-label="Sign in with Google" aria-busy={!ready}>
+      <span className={styles.googleButtonSkeleton} aria-hidden="true" />
+      <div className={styles.googleButtonHost} ref={hostRef} />
+    </div>
+  )
 }
 
 type EntryMode = 'loading' | 'guest' | 'account'
