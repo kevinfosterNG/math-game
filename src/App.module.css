@@ -4,8 +4,16 @@
 .topActions { display: flex; align-items: center; gap: 8px; }
 .playerName { color: #c7c6e4; font-size: .8rem; font-weight: 800; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .accountButton { color: #68f7d2; background: rgba(104,247,210,.08); border: 1px solid rgba(104,247,210,.35); border-radius: 999px; padding: 10px 14px; font-size: .75rem; font-weight: 900; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
-.googleButton { min-width: 190px; min-height: 32px; }
-.googleButtonCompact { width: 40px; min-height: 40px; }
+.googleButton, .googleButtonCompact { position: relative; flex: none; height: 40px; display: grid; place-items: center; overflow: hidden; }
+.googleButton { width: 190px; }
+.googleButtonCompact { width: 40px; }
+.googleButtonHost { width: 100%; min-height: 32px; display: flex; justify-content: center; visibility: hidden; }
+.googleButtonSkeleton { position: absolute; inset: 4px 0; border-radius: 999px; background: linear-gradient(100deg, rgba(255,255,255,.12) 30%, rgba(255,255,255,.25) 50%, rgba(255,255,255,.12) 70%); background-size: 200% 100%; animation: googleSkeletonShimmer 1.4s linear infinite; }
+.googleButtonCompact .googleButtonSkeleton { inset: 4px; border-radius: 50%; }
+.googleButtonReady .googleButtonHost { visibility: visible; }
+.googleButtonReady .googleButtonSkeleton { display: none; }
+@keyframes googleSkeletonShimmer { to { background-position-x: -200%; } }
+@media (prefers-reduced-motion: reduce) { .googleButtonSkeleton { animation: none; } }
 .authError { position: relative; z-index: 6; margin: 0; padding: 10px 20px; text-align: center; color: #ffaca3; background: #371b3b; font-weight: 800; }
 .entryScreen { min-height: calc(100vh - 76px); display: grid; place-items: center; padding: 32px 18px; position: relative; z-index: 1; }
 .guestReminder { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin: -32px 0 52px; padding: 18px 22px; border: 1px solid rgba(104,247,210,.38); border-radius: 16px; background: rgba(15,15,52,.94); box-shadow: 0 14px 32px rgba(0,0,0,.22); }

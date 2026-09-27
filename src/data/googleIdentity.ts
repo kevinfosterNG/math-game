@@ -11,6 +11,7 @@ export interface GoogleIdentity {
     size: 'medium'
     shape: 'pill' | 'circle'
     text?: 'signin_with'
+    width?: number
   }): void
 }
 

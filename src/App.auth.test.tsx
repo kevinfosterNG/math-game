@@ -12,6 +12,8 @@ const auth = vi.hoisted(() => ({
   googleCallback: null as null | ((response: { credential?: string }) => void),
   renderGoogleButton: vi.fn(),
   initializeGoogle: vi.fn(),
+  googleFrames: [] as HTMLIFrameElement[],
+  autoLoadGoogleFrames: true,
   signOut: vi.fn(),
 }))
 
@@ -38,7 +40,10 @@ vi.mock('./data/googleIdentity', () => ({
       const button = document.createElement('button')
       button.textContent = options.type === 'icon' ? 'Sign in' : 'Sign in with Google'
       button.addEventListener('click', () => auth.googleCallback?.({ credential: 'google-id-token' }))
-      element.append(button)
+      const iframe = document.createElement('iframe')
+      element.append(button, iframe)
+      auth.googleFrames.push(iframe)
+      if (auth.autoLoadGoogleFrames) queueMicrotask(() => iframe.dispatchEvent(new Event('load')))
     }),
   })),
   createGoogleNonce: vi.fn().mockResolvedValue({ raw: 'raw-nonce', hashed: 'hashed-nonce' }),
@@ -73,6 +78,8 @@ describe('private player sessions', () => {
     auth.googleCallback = null
     auth.initializeGoogle.mockClear()
     auth.renderGoogleButton.mockClear()
+    auth.googleFrames = []
+    auth.autoLoadGoogleFrames = true
     vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client.apps.googleusercontent.com')
     auth.signOut.mockReset().mockResolvedValue({ error: null })
   })
@@ -91,6 +98,21 @@ describe('private player sessions', () => {
     expect(screen.getByLabelText('Your answer')).toBeInTheDocument()
     expect(auth.pull).not.toHaveBeenCalled()
     expect(auth.push).not.toHaveBeenCalled()
+  })
+
+  it('keeps both Google buttons masked by skeletons until their iframes load', async () => {
+    auth.autoLoadGoogleFrames = false
+    render(<App />)
+    act(() => auth.listener?.('INITIAL_SESSION', null))
+    await waitFor(() => expect(auth.googleFrames).toHaveLength(2))
+    const buttons = [...document.querySelectorAll('[aria-label="Sign in with Google"]')]
+    expect(buttons).toHaveLength(2)
+    expect(buttons.every((button) => !button.className.includes('googleButtonReady'))).toBe(true)
+    expect(document.querySelectorAll('[class*="googleButtonSkeleton"]')).toHaveLength(2)
+    await act(async () => {
+      auth.googleFrames.forEach((frame) => frame.dispatchEvent(new Event('load')))
+    })
+    expect(buttons.every((button) => button.className.includes('googleButtonReady'))).toBe(true)
   })
 
   it("uses Google's on-site button and exchanges the ID token with Supabase", async () => {
